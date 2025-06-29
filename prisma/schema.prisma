@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AlumnoApoderado {
+  dni_alumno    Int
+  dni_apoderado Int
+  tipo_relacion String      @db.VarChar(50)
+  datos_alumno  DatosAlumno @relation(fields: [dni_alumno], references: [dni_alumno], onDelete: NoAction, onUpdate: NoAction)
+  apoderado     Apoderado   @relation(fields: [dni_apoderado], references: [dni_apoderado], onDelete: NoAction, onUpdate: NoAction)
+  cobra         Cobra[]
+
+  @@id([dni_alumno, dni_apoderado])
+  @@map("alumnoapoderado")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Apoderado {
+  dni_apoderado    Int               @id
+  nombre           String            @db.VarChar(255)
+  genero           String?           @db.Char(1)
+  direccion        String?           @db.VarChar(500)
+  telefono         Int?
+  alumno_apoderado AlumnoApoderado[]
+
+  @@map("apoderado")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Asignatura {
+  codigo            String              @id @db.VarChar(50)
+  nombre            String              @db.VarChar(255)
+  fecha_inicio      DateTime?           @db.Date
+  fecha_cierre      DateTime?           @db.Date
+  AsignaturaDictada AsignaturaDictada[]
+  Evaluacion        Evaluacion[]
+
+  @@map("asignatura")
+}
+
+model AsignaturaDictada {
+  dni_alumno        Int
+  codigo_asignatura String      @db.VarChar(50)
+  id_profesor       Int
+  horario_inicio    String      @db.VarChar(10)
+  horario_fin       String      @db.VarChar(10)
+  asignatura        Asignatura  @relation(fields: [codigo_asignatura], references: [codigo], onDelete: NoAction, onUpdate: NoAction)
+  datos_alumno      DatosAlumno @relation(fields: [dni_alumno], references: [dni_alumno], onDelete: NoAction, onUpdate: NoAction)
+  profesor          Profesor    @relation(fields: [id_profesor], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([dni_alumno, codigo_asignatura, id_profesor])
+  @@map("asignaturadictada")
+}
+
+model Aula {
+  id        Int         @id
+  tipo      String      @db.VarChar(50)
+  limpia    Limpia[]
+  matricula Matricula[]
+
+  @@map("aula")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Cobra {
+  dni_apoderado    Int
+  dni_alumno       Int
+  id_trabajador    Int
+  fecha_matricula  DateTime        @db.Date
+  fecha_pago       DateTime        @db.Date
+  monto            Int
+  matricula        Matricula       @relation(fields: [dni_alumno, fecha_matricula], references: [dni_alumno, fecha_matricula], onDelete: NoAction, onUpdate: NoAction)
+  alumno_apoderado AlumnoApoderado @relation(fields: [dni_apoderado, dni_alumno], references: [dni_apoderado, dni_alumno], onDelete: NoAction, onUpdate: NoAction)
+  secretaria       Secretaria      @relation(fields: [id_trabajador], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([dni_apoderado, dni_alumno, id_trabajador, fecha_matricula, fecha_pago])
+  @@map("cobra")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model DatosAlumno {
+  dni_alumno           Int                 @id
+  nombre               String              @db.VarChar(255)
+  genero               String?             @db.Char(1)
+  fecha_nacimiento     DateTime            @db.Date
+  correo_institucional String?             @unique @db.VarChar(255)
+  alumno_apoderado     AlumnoApoderado[]
+  asignatura_dictada   AsignaturaDictada[]
+  matricula            Matricula[]
+  nota                 Nota[]
+
+  @@map("datosalumno")
+}
+
+model Evaluacion {
+  codigo_asignatura String     @db.VarChar(50)
+  tipo              String     @db.VarChar(100)
+  fecha_inicio      DateTime?  @db.Date
+  asignatura        Asignatura @relation(fields: [codigo_asignatura], references: [codigo], onDelete: NoAction, onUpdate: NoAction)
+  nota              Nota[]
+
+  @@id([codigo_asignatura, tipo])
+  @@map("evaluacion")
+}
+
+model Limpia {
+  id_aula       Int
+  id_trabajador Int
+  fecha         DateTime      @db.Date
+  hora          String?       @db.VarChar(10)
+  frecuencia    String?       @db.VarChar(50)
+  aula          Aula          @relation(fields: [id_aula], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  mantenimiento Mantenimiento @relation(fields: [id_trabajador], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([id_aula, id_trabajador, fecha])
+  @@map("limpia")
+}
+
+model Mantenimiento {
+  id                 Int          @id
+  tipo_mantenimiento String?      @db.VarChar(100)
+  limpia             Limpia[]
+  trabajadores       Trabajadores @relation(fields: [id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("mantenimiento")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Matricula {
+  dni_alumno       Int
+  fecha_matricula  DateTime    @db.Date
+  id_aula          Int
+  grado            String      @db.VarChar(50)
+  seccion          String      @db.VarChar(50)
+  estado_matricula String      @db.VarChar(20)
+  cobra            Cobra[]
+  datos_alumno     DatosAlumno @relation(fields: [dni_alumno], references: [dni_alumno], onDelete: NoAction, onUpdate: NoAction)
+  aula             Aula        @relation(fields: [id_aula], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([dni_alumno, fecha_matricula])
+  @@map("matricula")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Nota {
+  valor             Int
+  tipo_evaluacion   String      @db.VarChar(100)
+  codigo_asignatura String      @db.VarChar(50)
+  dni_alumno        Int
+  datos_alumno      DatosAlumno @relation(fields: [dni_alumno], references: [dni_alumno], onDelete: NoAction, onUpdate: NoAction)
+  evaluacion        Evaluacion  @relation(fields: [tipo_evaluacion, codigo_asignatura], references: [tipo, codigo_asignatura], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([tipo_evaluacion, codigo_asignatura, dni_alumno])
+  @@map("nota")
+}
+
+model Profesor {
+  id                 Int                 @id
+  asignatura_dictada AsignaturaDictada[]
+  trabajadores       Trabajadores        @relation(fields: [id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("profesor")
+}
+
+model Secretaria {
+  id            Int          @id
+  fecha_ingreso DateTime     @db.Date
+  cobra         Cobra[]
+  trabajadores  Trabajadores @relation(fields: [id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("secretaria")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Trabajadores {
+  id            Int            @id
+  dni           Int            @unique
+  nombre        String         @db.VarChar(255)
+  celular       Int?
+  correo        String?        @unique @db.VarChar(255)
+  direccion     String?        @db.VarChar(500)
+  sueldo        Int?
+  mantenimiento Mantenimiento?
+  profesor      Profesor?
+  secretaria    Secretaria?
+
+  @@map("trabajadores")
+}
