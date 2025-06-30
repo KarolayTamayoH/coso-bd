@@ -13,7 +13,9 @@ import {
 
 import { asignaturas } from './helpers/constants'
 
-const prisma = new PrismaClient()
+const prisma = new PrismaClient({
+  log: ['warn', 'error']
+})
 const BATCH_SIZE = 1_000
 const TOTAL = (
   process.env.TOTAL_ALUMNOS ? parseInt(process.env.TOTAL_ALUMNOS) : 1000
@@ -186,7 +188,7 @@ const trabajadores = {
     limpieza: 84
   },
   100000: {
-    profesores: 30588,
+    profesores: 5600,
     secretarias: 334,
     limpieza: 834
   },
@@ -253,11 +255,10 @@ async function seedUsuarios() {
   for (let j = 0; j < trabajadores[TOTAL].profesores; j++) {
     const firstNameProfesor = faker.person.firstName()
     const lastNameProfesor = faker.person.lastName()
-    const emailProfesor = faker.internet.email({
-      firstName: firstNameProfesor.toLocaleLowerCase(),
-      lastName: lastNameProfesor.toLocaleLowerCase(),
-      provider: 'utec.edu.pe'
-    })
+    const emailProfesor = generarCorreoUnico(
+      firstNameProfesor,
+      lastNameProfesor
+    )
 
     profesores.push({
       id: j,
@@ -274,11 +275,10 @@ async function seedUsuarios() {
     if (j < trabajadores[TOTAL].secretarias) {
       const firstNameSecretaria = faker.person.firstName()
       const lastNameSecretaria = faker.person.lastName()
-      const emailSecretaria = faker.internet.email({
-        firstName: firstNameSecretaria.toLocaleLowerCase(),
-        lastName: lastNameSecretaria.toLocaleLowerCase(),
-        provider: 'utec.edu.pe'
-      })
+      const emailSecretaria = generarCorreoUnico(
+        firstNameSecretaria,
+        lastNameSecretaria
+      )
 
       secretarias.push({
         id: j + trabajadores[TOTAL].profesores,
@@ -296,11 +296,10 @@ async function seedUsuarios() {
     if (j < trabajadores[TOTAL].limpieza) {
       const firstNameLimpieza = faker.person.firstName()
       const lastNameLimpieza = faker.person.lastName()
-      const emailLimpieza = faker.internet.email({
-        firstName: firstNameLimpieza.toLocaleLowerCase(),
-        lastName: lastNameLimpieza.toLocaleLowerCase(),
-        provider: 'utec.edu.pe'
-      })
+      const emailLimpieza = generarCorreoUnico(
+        firstNameLimpieza,
+        lastNameLimpieza
+      )
 
       limpieza.push({
         id:
@@ -325,53 +324,64 @@ async function seedUsuarios() {
     })
   }
 
+  // Concatenar todos los trabajadores y asegurar IDs consecutivos
+  const trabajadoresFinal = profesores.concat(secretarias, limpieza)
+
   // Insertar trabajadores, aulas y asignaturas (solo una vez)
   console.log('💾 Insertando datos base...')
-  await prisma.$transaction(async tx => {
-    await tx.asignatura.createMany({
-      data: asignaturas,
-      skipDuplicates: true
-    })
+  await prisma.$transaction(
+    async tx => {
+      await tx.asignatura.createMany({
+        data: asignaturas,
+        skipDuplicates: true
+      })
 
-    await tx.trabajadores.createMany({
-      data: profesores.concat(secretarias, limpieza),
-      skipDuplicates: true
-    })
+      await tx.trabajadores.createMany({
+        data: trabajadoresFinal,
+        skipDuplicates: true
+      })
 
-    await tx.profesor.createMany({
-      data: profesores.map(p => ({ id: p.id })),
-      skipDuplicates: true
-    })
+      await tx.profesor.createMany({
+        data: profesores.map(p => ({ id: p.id })),
+        skipDuplicates: true
+      })
 
-    await tx.secretaria.createMany({
-      data: secretarias.map(s => ({
-        id: s.id,
-        fecha_ingreso: faker.date.past({ years: 2 })
-      })),
-      skipDuplicates: true
-    })
+      await tx.secretaria.createMany({
+        data: secretarias.map(s => ({
+          id: s.id,
+          fecha_ingreso: faker.date.past({ years: 2 })
+        })),
+        skipDuplicates: true
+      })
 
-    await tx.mantenimiento.createMany({
-      data: limpieza.map(l => ({
-        id: l.id,
-        tipo_mantenimiento: faker.helpers.arrayElement([
-          'LIMPIEZA GENERAL',
-          'LIMPIEZA PROFUNDA',
-          'MANTENIMIENTO PREVENTIVO'
-        ])
-      })),
-      skipDuplicates: true
-    })
+      await tx.mantenimiento.createMany({
+        data: limpieza.map(l => ({
+          id: l.id,
+          tipo_mantenimiento: faker.helpers.arrayElement([
+            'LIMPIEZA GENERAL',
+            'LIMPIEZA PROFUNDA',
+            'MANTENIMIENTO PREVENTIVO'
+          ])
+        })),
+        skipDuplicates: true
+      })
 
-    await tx.aula.createMany({
-      data: aulasData,
-      skipDuplicates: true
-    })
-  })
+      await tx.aula.createMany({
+        data: aulasData,
+        skipDuplicates: true
+      })
+    },
+    {
+      timeout: 5 * 60 * 1000 // 5 minutos
+    }
+  )
 
   for (let i = 0; i < TOTAL; i += BATCH_SIZE) {
+    const batchNumber = i / BATCH_SIZE + 1;
+    const totalBatches = Math.ceil(TOTAL / BATCH_SIZE);
+    
     console.log(
-      `\n🚀 Iniciando batch ${i / BATCH_SIZE + 1}/${Math.ceil(TOTAL / BATCH_SIZE)}`
+      `\n🚀 Iniciando batch ${batchNumber}/${totalBatches}`
     )
     console.log(
       `📊 Procesando registros ${i + 1} a ${Math.min(i + BATCH_SIZE, TOTAL)}`
@@ -383,9 +393,26 @@ async function seedUsuarios() {
     const tripletasLimpiaBatch = new Set<string>()
     const tripletasNotaBatch = new Set<string>()
 
-    try {
-      await prisma.$transaction(
-        async tx => {
+    let retryCount = 0;
+    const maxRetries = 3;
+    let batchSuccess = false;
+
+    while (!batchSuccess && retryCount <= maxRetries) {
+      try {
+        // Agregar una pequeña pausa entre batches para liberar conexiones
+        if (i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        // Pausa adicional en caso de retry
+        if (retryCount > 0) {
+          const waitTime = Math.min(1000 * Math.pow(2, retryCount), 10000); // Exponential backoff, max 10s
+          console.log(`⚠️ Timeout en batch ${batchNumber}, reintento ${retryCount}/${maxRetries} en ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+
+        await prisma.$transaction(
+          async tx => {
           const alumnos: DatosAlumno[] = []
           const apoderados: Apoderado[] = []
           const alumnosApoderados: AlumnoApoderado[] = []
@@ -689,16 +716,29 @@ async function seedUsuarios() {
           })
         },
         {
-          timeout: 60000 // 60 segundos
+          timeout: 3 * 60 * 1000 // 3 minutos
         }
       )
 
-      console.log(`✅ Batch ${i / BATCH_SIZE + 1} completado exitosamente`)
+      // Si llegamos aquí, el batch fue exitoso
+      batchSuccess = true;
+      console.log(`✅ Batch ${batchNumber} completado exitosamente`)
       console.log(
         `📈 Progreso: ${Math.min(i + BATCH_SIZE, TOTAL)}/${TOTAL} registros procesados`
       )
+
     } catch (error) {
-      console.error(`❌ Error en batch ${i / BATCH_SIZE + 1}:`)
+      retryCount++;
+      
+      // Check if it's a transaction timeout error that we should retry
+      if (error && typeof error === 'object' && 'code' in error && 
+          (error as { code: string }).code === 'P2028' && retryCount <= maxRetries) {
+        console.log(`⚠️ Timeout detectado en batch ${batchNumber} (intento ${retryCount}/${maxRetries})`);
+        continue; // Continue to retry
+      }
+      
+      // For other errors or max retries reached, log and throw
+      console.error(`❌ Error en batch ${batchNumber} (intento ${retryCount}):`);
       console.error(`🔍 Detalles del error:`, error)
 
       if (error instanceof Error) {
@@ -717,10 +757,15 @@ async function seedUsuarios() {
       }
 
       console.error(
-        `⚠️ Rollback automático ejecutado para batch ${i / BATCH_SIZE + 1}`
+        `⚠️ Rollback automático ejecutado para batch ${batchNumber}`
       )
-      throw error // Re-throw para detener el proceso
+      
+      if (retryCount > maxRetries) {
+        console.error('💥 Máximo número de reintentos alcanzado. Proceso terminado.');
+        throw error; // Re-throw para detener el proceso
+      }
     }
+  } // End of retry while loop
   }
 
   console.log('🎉 ¡Todos los datos generados exitosamente!')
